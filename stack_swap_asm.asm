@@ -5,16 +5,16 @@ stack_switch_finish proc
 	mov rsp, qword ptr [rdx]
 	; and we are now in the other context
 	; restore registers
-	movaps [rsp - 160], xmm15
-	movaps [rsp - 144], xmm14
-	movaps [rsp - 128], xmm13
-	movaps [rsp - 112], xmm12
-	movaps [rsp - 96], xmm11
-	movaps [rsp - 80], xmm10
-	movaps [rsp - 64], xmm9
-	movaps [rsp - 48], xmm8
-	movaps [rsp - 32], xmm7
-	movaps [rsp - 16], xmm6
+	movaps xmm15, [rsp - 160]
+	movaps xmm14, [rsp - 144]
+	movaps xmm13, [rsp - 128]
+	movaps xmm12, [rsp - 112]
+	movaps xmm11, [rsp - 96]
+	movaps xmm10, [rsp - 80]
+	movaps xmm9, [rsp - 64]
+	movaps xmm8, [rsp - 48]
+	movaps xmm7, [rsp - 32]
+	movaps xmm6, [rsp - 16]
 	add rsp, 8 ; stack alignment
 	pop r15
 	pop r14
