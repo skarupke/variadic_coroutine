@@ -206,6 +206,27 @@ int main()
 		SS_ASSERT(copy_count == 0);
 	}
 
+	{
+		coroutine<void (int)> coro([](coroutine<void (int)>::self & self, int first_argument)
+		{
+			std::cout << "first " << first_argument << std::endl;
+			std::tuple<int> second_argument = self.yield();
+			std::cout << "second " << std::get<0>(second_argument) << std::endl;
+			std::tuple<int> third_argument = self.yield();
+			std::cout << "third " << std::get<0>(third_argument) << std::endl;
+		});
+		coro(7);
+		coro(5);
+		coro(8);
+		bool fired = false;
+		coro = coroutine<void (int)>([&fired](coroutine<void (int)>::self &, int)
+		{
+			fired = true;
+		});
+		coro(5);
+		SS_ASSERT(fired);
+	}
+
 	coroutine<void ()> performance_test([](coroutine<void ()>::self & self)
 	{
 		for (int i = 0; i < 10000000; ++i)
