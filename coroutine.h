@@ -4,7 +4,9 @@
 #include <tuple>
 #include <functional>
 #include <memory>
-#include <exception>
+#ifndef CORO_NO_EXCEPTIONS
+#	include <exception>
+#endif
 #include <cstdint>
 
 #ifndef CORO_DEFAULT_STACK_SIZE
@@ -33,7 +35,9 @@ namespace detail
 			: stack(std::move(other.stack))
 			, this_indirection(std::move(other.this_indirection))
 			, callee(std::move(other.callee))
-			, exception(std::move(other.exception))
+#			ifndef CORO_NO_EXCEPTIONS
+				, exception(std::move(other.exception))
+#			endif
 			, returned(std::move(other.returned))
 		{
 			*this_indirection = this;
@@ -43,7 +47,9 @@ namespace detail
 			stack = std::move(other.stack);
 			this_indirection = std::move(other.this_indirection);
 			callee = std::move(other.callee);
-			exception = std::move(other.exception);
+#			ifndef CORO_NO_EXCEPTIONS
+				exception = std::move(other.exception);
+#			endif
 			returned = std::move(other.returned);
 			*this_indirection = this;
 			return *this;
@@ -51,20 +57,28 @@ namespace detail
 
 		void operator()()
 		{
-			if (returned) throw "This coroutine has already finished";
+#			ifdef CORO_NO_EXCEPTIONS
+				if (returned) return;
+#			else
+				if (returned) throw "This coroutine has already finished";
+#			endif
 
 			callee->switch_into(); // will continue here if yielded or returned
 
-			if (exception)
-			{
-				std::rethrow_exception(std::move(exception));
-			}
+#			ifndef CORO_NO_EXCEPTIONS
+				if (exception)
+				{
+					std::rethrow_exception(std::move(exception));
+				}
+#			endif
 		}
 
 		std::unique_ptr<unsigned char[]> stack;
 		std::unique_ptr<coroutine_context *> this_indirection;
 		std::unique_ptr<stack::stack_context> callee;
-		std::exception_ptr exception;
+#		ifndef CORO_NO_EXCEPTIONS
+			std::exception_ptr exception;
+#		endif
 		bool returned;
 
 		template<typename T>
@@ -278,20 +292,22 @@ namespace detail
 		}
 	};
 
-	// this is to get around a bug with variadic templates and the catch(...)
-	// statement in visual studio (dec 2012)
-	template<typename T, typename GetExceptionPointer>
-	void run_and_store_exception(T && to_run, GetExceptionPointer && get_exception_pointer)
-	{
-		try
+#	ifndef CORO_NO_EXCEPTIONS
+		// this is to get around a bug with variadic templates and the catch(...)
+		// statement in visual studio (dec 2012)
+		template<typename T, typename GetExceptionPointer>
+		void run_and_store_exception(T && to_run, GetExceptionPointer && get_exception_pointer)
 		{
-			to_run();
+			try
+			{
+				to_run();
+			}
+			catch(...)
+			{
+				get_exception_pointer() = std::current_exception();
+			}
 		}
-		catch(...)
-		{
-			get_exception_pointer() = std::current_exception();
-		}
-	}
+#	endif
 
 	/**
 	 * The coroutine_prepare exposes the public operator(). It stores the arguments to be passed to the
@@ -382,17 +398,20 @@ namespace detail
 			// this is the function that the coroutine will start off in
 			static void coroutine_start(Self ** this_)
 			{
-				run_and_store_exception([this_]
-				{
-					Result result = std::forward<Result>(Func(**this_));
-					// store in a separate line in case the coroutine has been
-					// moved
-					(*this_)->result = std::forward<Result>(result);
-				},
-				[this_]() -> std::exception_ptr &
-				{
-					return (*this_)->exception;
-				});
+#				ifndef CORO_NO_EXCEPTIONS
+					run_and_store_exception([this_]
+					{
+#				endif
+						Result result = std::forward<Result>(Func(**this_));
+						// store in a separate line in case the coroutine has been moved
+						(*this_)->result = std::forward<Result>(result);
+#				ifndef CORO_NO_EXCEPTIONS
+					},
+					[this_]() -> std::exception_ptr &
+					{
+						return (*this_)->exception;
+					});
+#				endif
 				(*this_)->returned = true;
 			}
 		};
@@ -409,14 +428,18 @@ namespace detail
 			// this is the function that the coroutine will start off in
 			static void coroutine_start(Self ** this_)
 			{
-				run_and_store_exception([this_]
-				{
-					Func(**this_);
-				},
-				[this_]() -> std::exception_ptr &
-				{
-					return (*this_)->exception;
-				});
+#				ifndef CORO_NO_EXCEPTIONS
+					run_and_store_exception([this_]
+					{
+#				endif
+						Func(**this_);
+#				ifndef CORO_NO_EXCEPTIONS
+					},
+					[this_]() -> std::exception_ptr &
+					{
+						return (*this_)->exception;
+					});
+#				endif
 				(*this_)->returned = true;
 			}
 		};
