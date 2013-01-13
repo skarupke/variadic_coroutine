@@ -280,8 +280,8 @@ namespace detail
 
 	// this is to get around a bug with variadic templates and the catch(...)
 	// statement in visual studio (dec 2012)
-	template<typename T>
-	void run_and_store_exception(T && to_run, coroutine_context ** context)
+	template<typename T, typename GetExceptionPointer>
+	void run_and_store_exception(T && to_run, GetExceptionPointer && get_exception_pointer)
 	{
 		try
 		{
@@ -289,7 +289,7 @@ namespace detail
 		}
 		catch(...)
 		{
-			(*context)->exception = std::current_exception();
+			get_exception_pointer() = std::current_exception();
 		}
 	}
 
@@ -385,8 +385,14 @@ namespace detail
 				run_and_store_exception([this_]
 				{
 					Result result = std::forward<Result>(Func(**this_));
+					// store in a separate line in case the coroutine has been
+					// moved
 					(*this_)->result = std::forward<Result>(result);
-				}, reinterpret_cast<coroutine_context **>(this_));
+				},
+				[this_]() -> std::exception_ptr &
+				{
+					return (*this_)->exception;
+				});
 				(*this_)->returned = true;
 			}
 		};
@@ -403,7 +409,14 @@ namespace detail
 			// this is the function that the coroutine will start off in
 			static void coroutine_start(Self ** this_)
 			{
-				run_and_store_exception([this_]{ Func(**this_); }, reinterpret_cast<coroutine_context **>(this_));
+				run_and_store_exception([this_]
+				{
+					Func(**this_);
+				},
+				[this_]() -> std::exception_ptr &
+				{
+					return (*this_)->exception;
+				});
 				(*this_)->returned = true;
 			}
 		};
