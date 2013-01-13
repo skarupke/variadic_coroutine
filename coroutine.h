@@ -104,9 +104,11 @@ namespace detail
 
 	private:
 		T stored;
+#ifdef _MSC_VER
 		// intentionally not implemented
 		any_storage(const any_storage & other);
 		any_storage & operator=(const any_storage & other);
+#endif
 	};
 
 	// specialization for void
@@ -148,9 +150,11 @@ namespace detail
 
 	private:
 		T * stored;
+#ifdef _MSC_VER
 		// intentionally not implemented
 		any_storage(const any_storage & other);
 		any_storage & operator=(const any_storage & other);
+#endif
 	};
 
 	// specialization for rvalue references
@@ -186,9 +190,11 @@ namespace detail
 
 	private:
 		T * stored;
+#ifdef _MSC_VER
 		// intentionally not implemented
 		any_storage(const any_storage & other);
 		any_storage & operator=(const any_storage & other);
+#endif
 	};
 
 
@@ -297,12 +303,11 @@ namespace detail
 	{
 	private:
 		typedef coroutine_yielder<Result, Arguments...> Super;
-		template<typename Self, typename Result, Result (*Func)(Self &)>
+		template<Result (*Func)(Self &)>
 		struct returner;
-		template<typename Self>
 		struct caller;
 
-		typedef returner<Self, Result, &caller<Self>::call> Returner;
+		typedef returner<&caller::call> Returner;
 
 	public:
 		Result operator()(Arguments... args)
@@ -335,7 +340,6 @@ namespace detail
 		 * The caller calls the provided std::function. it is responsible for
 		 * unrolling the arguments tuple. it is being called by the returner
 		 */
-		template<typename Self>
 		struct caller
 		{
 			static Result call(Self & this_)
@@ -343,7 +347,7 @@ namespace detail
 				return unrolling_caller<sizeof...(Arguments)>::call(this_, this_.arguments);
 			}
 
-			template<int N>
+			template<size_t N, typename Dummy = void>
 			struct unrolling_caller
 			{
 				template<typename... UnrolledArguments>
@@ -352,8 +356,8 @@ namespace detail
 					return unrolling_caller<N - 1>::call(this_, tuple, std::get<N - 1>(tuple), arguments...);
 				}
 			};
-			template<>
-			struct unrolling_caller<0>
+			template<typename Dummy>
+			struct unrolling_caller<0, Dummy>
 			{
 				static Result call(Self & this_, std::tuple<any_storage<Arguments>...> &, any_storage<Arguments> &... arguments)
 				{
@@ -367,7 +371,7 @@ namespace detail
 		 * the returner is responsible for returning the result of the coroutine or of yielding
 		 * it also provides the entry point for the coroutine
 		 */
-		template<typename Self, typename Result, Result (*Func)(Self &)>
+		template<Result (*Func)(Self &)>
 		struct returner
 		{
 			static Result return_result(coroutine_preparer & this_)
@@ -389,8 +393,8 @@ namespace detail
 		/**
 		 * specialization for void return
 		 */
-		template<typename Self, void (*Func)(Self &)>
-		struct returner<Self, void, Func>
+		template<void (*Func)(Self &)>
+		struct returner<Func>
 		{
 			static void return_result(coroutine_preparer &)
 			{

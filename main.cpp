@@ -2,10 +2,11 @@
 #include <iostream>
 #include <string>
 
-#ifdef _DEBUG
-#define SS_ASSERT(cond) if (!(cond)) __debugbreak(); else static_cast<void>(0)
+#if defined(_MSC_VER) and defined(_DEBUG)
+#	define SS_ASSERT(cond) if (!(cond)) __debugbreak(); else static_cast<void>(0)
 #else
-#define SS_ASSERT(cond) static_cast<void>(0)
+#	include <cassert>
+#	define SS_ASSERT(cond) assert(cond)
 #endif
 
 struct copy_counter
@@ -60,7 +61,7 @@ int main()
 	}
 
 	{
-		coroutine<int ()> testReturn([](coroutine<int ()>::self & self)
+		coroutine<int ()> testReturn([](coroutine<int ()>::self & self) -> int
 		{
 			for (int i = 0; i < 10; ++i)
 			{
@@ -128,13 +129,13 @@ int main()
 	}
 
 	{
-		coroutine<std::string (int, double, int)> testMultipleArgsWithReturn([](coroutine<std::string (int, double, int)>::self & self, int a, double d, int b)
+		coroutine<std::string (int, double, int)> testMultipleArgsWithReturn([](coroutine<std::string (int, double, int)>::self & self, int a, double d, int b) -> std::string
 		{
 			for (int i = 0; i < 10; ++i)
 			{
-				std::tie(a, d, b) = self.yield("Hello, World!" + i);
+				std::tie(a, d, b) = self.yield(&"Hello, World!"[i]);
 			}
-			return "Hello, World!" + 10;
+			return &"Hello, World!"[10];
 		});
 		for (int i = 0; testMultipleArgsWithReturn; ++i)
 		{
@@ -239,7 +240,7 @@ int main()
 		performance_test();
 	}
 
-	std::cin.get();
+	//std::cin.get();
 	return 0;
 }
 

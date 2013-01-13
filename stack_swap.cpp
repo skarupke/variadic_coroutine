@@ -123,9 +123,8 @@ stack_context::stack_context(void * stack, size_t stack_size, void (* function)(
 	initial_stack[-21] = initial_stack[-20] = nullptr; // initial xmm15
 #else
 	unsigned char * math_stack = static_cast<unsigned char *>(stack) + stack_size;
-	stack_base = math_stack - sizeof(void *) * 4;
-	stack_top = math_stack - sizeof(void *) * 9;
-	void ** initial_stack = static_cast<void **>(stack_top);
+	my_stack_top = math_stack - sizeof(void *) * 9;
+	void ** initial_stack = static_cast<void **>(my_stack_top);
 	initial_stack[8] = nullptr; // will store the return address here to make the debuggers life easier
 	initial_stack[7] = nullptr; // will store rbp here to make the debuggers life easier
 	asm("movq $callable_context_start, %0\n\t" : : "m"(initial_stack[6]));
