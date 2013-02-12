@@ -93,15 +93,18 @@ stack_context::stack_context(void * stack, size_t stack_size, void (* function)(
 #ifdef _MSC_VER
 	unsigned char * math_stack = static_cast<unsigned char *>(stack) + stack_size;
 	my_stack_top = math_stack - sizeof(void *) // space for return address (initial call)
-						   - sizeof(void *) * 4 // space for arguments
-						   - sizeof(void *) * 8 // space for non-volatile integer registers
-						   //- sizeof(void *) * 2 * 10 // space for non-volatile xmm registers
-						   //- sizeof(void *) // stack alignment
-						   ;
+							- sizeof(void *) * 2 // space for stack info
+							- sizeof(void *) * 4 // space for arguments
+							- sizeof(void *) * 8 // space for non-volatile integer registers
+							//- sizeof(void *) * 2 * 10 // space for non-volatile xmm registers
+							//- sizeof(void *) // stack alignment
+							;
 	void ** initial_stack = static_cast<void **>(my_stack_top);
-	// initial_stack[8] to initial_stack[11] are space for arguments. I won't
+	// initial_stack[11] to initial_stack[14] are space for arguments. I won't
 	// use that space but the calling convention says it has to be there
-	initial_stack[8] = &callable_context_start;
+	initial_stack[10] = &callable_context_start;
+	initial_stack[9] = math_stack;
+	initial_stack[8] = stack;
 	initial_stack[7] = this; // initial rbx
 	initial_stack[6] = nullptr; // initial rbp
 	initial_stack[5] = nullptr; // initial rdi
@@ -123,9 +126,8 @@ stack_context::stack_context(void * stack, size_t stack_size, void (* function)(
 	initial_stack[-21] = initial_stack[-20] = nullptr; // initial xmm15
 #else
 	unsigned char * math_stack = static_cast<unsigned char *>(stack) + stack_size;
-	stack_base = math_stack - sizeof(void *) * 4;
-	stack_top = math_stack - sizeof(void *) * 9;
-	void ** initial_stack = static_cast<void **>(stack_top);
+	my_stack_top = math_stack - sizeof(void *) * 9;
+	void ** initial_stack = static_cast<void **>(my_stack_top);
 	initial_stack[8] = nullptr; // will store the return address here to make the debuggers life easier
 	initial_stack[7] = nullptr; // will store rbp here to make the debuggers life easier
 	asm("movq $callable_context_start, %0\n\t" : : "m"(initial_stack[6]));

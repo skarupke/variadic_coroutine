@@ -1,6 +1,9 @@
 .code
 
 switch_to_context proc
+	; store NT_TIB stack info members
+	push qword ptr gs:[8]
+	push qword ptr gs:[16]
 	; store rbx and r12 to r15 on the stack. these will be restored
 	; after we switch back
 	push rbx
@@ -50,6 +53,11 @@ stack_switch_finish proc
 	pop rdi
 	pop rbp
 	pop rbx
+	; restore NT_TIB stack info members. this is needed because _chkstk will
+	; use these members to step the stack. so we need to make sure that it, and
+	; any other functions that use the stack information, get correct values
+	pop qword ptr gs:[16]
+	pop qword ptr gs:[8]
 	ret ; go to whichever code is used by the other stack
 stack_switch_finish endp
 

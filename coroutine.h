@@ -4,11 +4,14 @@
 #include <tuple>
 #include <functional>
 #include <memory>
-#include <exception>
+#ifndef CORO_NO_EXCEPTIONS
+#	include <exception>
+#	include <stdexcept>
+#endif
 #include <cstdint>
 
 #ifndef CORO_DEFAULT_STACK_SIZE
-#define CORO_DEFAULT_STACK_SIZE 128 * 1024
+#define CORO_DEFAULT_STACK_SIZE 64 * 1024
 #endif
 
 namespace coro
@@ -22,18 +25,20 @@ namespace detail
 	struct coroutine_context
 	{
 	protected:
-		coroutine_context(size_t stack_size, void (*coroutine_call)(void *))
+		coroutine_context(size_t stack_size, void (*coroutine_call)(coroutine_context **))
 			: stack(new unsigned char[stack_size])
 			, this_indirection(new coroutine_context *(this))
-			, callee(new stack::stack_context(stack.get(), stack_size, coroutine_call, this_indirection.get()))
+			, stack_context(new stack::stack_context(stack.get(), stack_size, reinterpret_cast<void (*)(void *)>(coroutine_call), this_indirection.get()))
 			, returned(false)
 		{
 		}
 		coroutine_context(coroutine_context && other)
 			: stack(std::move(other.stack))
 			, this_indirection(std::move(other.this_indirection))
-			, callee(std::move(other.callee))
-			, exception(std::move(other.exception))
+			, stack_context(std::move(other.stack_context))
+#			ifndef CORO_NO_EXCEPTIONS
+				, exception(std::move(other.exception))
+#			endif
 			, returned(std::move(other.returned))
 		{
 			*this_indirection = this;
@@ -42,8 +47,10 @@ namespace detail
 		{
 			stack = std::move(other.stack);
 			this_indirection = std::move(other.this_indirection);
-			callee = std::move(other.callee);
-			exception = std::move(other.exception);
+			stack_context = std::move(other.stack_context);
+#			ifndef CORO_NO_EXCEPTIONS
+				exception = std::move(other.exception);
+#			endif
 			returned = std::move(other.returned);
 			*this_indirection = this;
 			return *this;
@@ -51,24 +58,34 @@ namespace detail
 
 		void operator()()
 		{
-			if (returned) throw "This coroutine has already finished";
+#			ifdef CORO_NO_EXCEPTIONS
+				if (returned) return;
+#			else
+				if (returned) throw std::runtime_error("This coroutine has already finished");
+#			endif
 
-			callee->switch_into(); // will continue here if yielded or returned
+			stack_context->switch_into(); // will continue here if yielded or returned
 
-			if (exception)
-			{
-				std::rethrow_exception(std::move(exception));
-			}
+#			ifndef CORO_NO_EXCEPTIONS
+				if (exception)
+				{
+					std::rethrow_exception(std::move(exception));
+				}
+#			endif
+		}
+
+		void yield()
+		{
+			stack_context->switch_out_of();
 		}
 
 		std::unique_ptr<unsigned char[]> stack;
 		std::unique_ptr<coroutine_context *> this_indirection;
-		std::unique_ptr<stack::stack_context> callee;
-		std::exception_ptr exception;
+		std::unique_ptr<stack::stack_context> stack_context;
+#		ifndef CORO_NO_EXCEPTIONS
+			std::exception_ptr exception;
+#		endif
 		bool returned;
-
-		template<typename T>
-		friend void run_and_store_exception(T &&, coroutine_context **);
 	};
 
 	// a type that can store both objects and references
@@ -104,9 +121,11 @@ namespace detail
 
 	private:
 		T stored;
+#ifdef _MSC_VER
 		// intentionally not implemented
 		any_storage(const any_storage & other);
 		any_storage & operator=(const any_storage & other);
+#endif
 	};
 
 	// specialization for void
@@ -148,9 +167,11 @@ namespace detail
 
 	private:
 		T * stored;
+#ifdef _MSC_VER
 		// intentionally not implemented
 		any_storage(const any_storage & other);
 		any_storage & operator=(const any_storage & other);
+#endif
 	};
 
 	// specialization for rvalue references
@@ -186,9 +207,11 @@ namespace detail
 
 	private:
 		T * stored;
+#ifdef _MSC_VER
 		// intentionally not implemented
 		any_storage(const any_storage & other);
 		any_storage & operator=(const any_storage & other);
+#endif
 	};
 
 
@@ -198,12 +221,12 @@ namespace detail
 	{
 		std::tuple<Arguments...> yield()
 		{
-			this->callee->switch_out_of();
+			coroutine_context::yield();
 			return std::move(this->arguments);
 		}
 
 	protected:
-		coroutine_yielder_base(size_t stack_size, void (*coroutine_call)(void *))
+		coroutine_yielder_base(size_t stack_size, void (*coroutine_call)(coroutine_context **))
 			: coroutine_context(stack_size, coroutine_call)
 		{
 		}
@@ -233,7 +256,7 @@ namespace detail
 	struct coroutine_yielder
 		: protected coroutine_yielder_base<Result, Arguments...>
 	{
-		coroutine_yielder(size_t stack_size, void (*coroutine_call)(void *))
+		coroutine_yielder(size_t stack_size, void (*coroutine_call)(coroutine_context **))
 			: coroutine_yielder_base<Result, Arguments...>(stack_size, coroutine_call)
 		{
 		}
@@ -257,7 +280,7 @@ namespace detail
 	struct coroutine_yielder<void, Arguments...>
 		: coroutine_yielder_base<void, Arguments...>
 	{
-		coroutine_yielder(size_t stack_size, void (*coroutine_call)(void *))
+		coroutine_yielder(size_t stack_size, void (*coroutine_call)(coroutine_context **))
 			: coroutine_yielder_base<void, Arguments...>(stack_size, coroutine_call)
 		{
 		}
@@ -272,20 +295,22 @@ namespace detail
 		}
 	};
 
-	// this is to get around a bug with variadic templates and the catch(...)
-	// statement in visual studio (dec 2012)
-	template<typename T>
-	void run_and_store_exception(T && to_run, coroutine_context ** context)
-	{
-		try
+#	ifndef CORO_NO_EXCEPTIONS
+		// this is to get around a bug with variadic templates and the catch(...)
+		// statement in visual studio (dec 2012)
+		template<typename T, typename GetExceptionPointer>
+		void run_and_store_exception(T && to_run, GetExceptionPointer && get_exception_pointer)
 		{
-			to_run();
+			try
+			{
+				to_run();
+			}
+			catch(...)
+			{
+				get_exception_pointer() = std::current_exception();
+			}
 		}
-		catch(...)
-		{
-			(*context)->exception = std::current_exception();
-		}
-	}
+#	endif
 
 	/**
 	 * The coroutine_prepare exposes the public operator(). It stores the arguments to be passed to the
@@ -297,12 +322,12 @@ namespace detail
 	{
 	private:
 		typedef coroutine_yielder<Result, Arguments...> Super;
-		template<typename Self, typename Result, Result (*Func)(Self &)>
+		template<typename S, typename R, R (*Func)(S &)>
 		struct returner;
-		template<typename Self>
+		template<typename S, typename R, typename... A>
 		struct caller;
 
-		typedef returner<Self, Result, &caller<Self>::call> Returner;
+		typedef returner<Self, Result, &caller<Self, Result, Arguments...>::call> Returner;
 
 	public:
 		Result operator()(Arguments... args)
@@ -314,7 +339,7 @@ namespace detail
 
 	protected:
 		coroutine_preparer(std::function<Result (Self &, Arguments...)> func, size_t stack_size)
-			: Super(stack_size, reinterpret_cast<void (*)(void *)>(&Returner::coroutine_start)), func(std::move(func))
+			: Super(stack_size, reinterpret_cast<void (*)(coroutine_context **)>(&Returner::coroutine_start)), func(std::move(func))
 		{
 		}
 		coroutine_preparer(coroutine_preparer && other)
@@ -335,29 +360,29 @@ namespace detail
 		 * The caller calls the provided std::function. it is responsible for
 		 * unrolling the arguments tuple. it is being called by the returner
 		 */
-		template<typename Self>
+		template<typename S, typename R, typename... A>
 		struct caller
 		{
-			static Result call(Self & this_)
+			static R call(S & this_)
 			{
-				return unrolling_caller<sizeof...(Arguments)>::call(this_, this_.arguments);
+				return unrolling_caller<sizeof...(A)>::call(this_, this_.arguments);
 			}
 
-			template<int N>
+			template<size_t N, typename Dummy = void>
 			struct unrolling_caller
 			{
 				template<typename... UnrolledArguments>
-				static Result call(Self & this_, std::tuple<any_storage<Arguments>...> & tuple, any_storage<UnrolledArguments> &... arguments)
+				static Result call(S & this_, std::tuple<any_storage<A>...> & tuple, any_storage<UnrolledArguments> &... arguments)
 				{
 					return unrolling_caller<N - 1>::call(this_, tuple, std::get<N - 1>(tuple), arguments...);
 				}
 			};
-			template<>
-			struct unrolling_caller<0>
+			template<typename Dummy>
+			struct unrolling_caller<0, Dummy>
 			{
-				static Result call(Self & this_, std::tuple<any_storage<Arguments>...> &, any_storage<Arguments> &... arguments)
+				static Result call(S & this_, std::tuple<any_storage<A>...> &, any_storage<A> &... arguments)
 				{
-					return this_.func(this_, std::forward<Arguments>(arguments)...);
+					return this_.func(this_, std::forward<A>(arguments)...);
 				}
 			};
 		};
@@ -367,39 +392,63 @@ namespace detail
 		 * the returner is responsible for returning the result of the coroutine or of yielding
 		 * it also provides the entry point for the coroutine
 		 */
-		template<typename Self, typename Result, Result (*Func)(Self &)>
+		template<typename S, typename R, R (*Func)(S &)>
 		struct returner
 		{
-			static Result return_result(coroutine_preparer & this_)
+			static R return_result(coroutine_preparer & this_)
 			{
-				return std::forward<Result>(this_.result);
+				return std::forward<R>(this_.result);
 			}
 
 			// this is the function that the coroutine will start off in
-			static void coroutine_start(Self ** this_)
+			static void coroutine_start(S ** this_)
 			{
-				run_and_store_exception([this_]
-				{
-					Result result = std::forward<Result>(Func(**this_));
-					(*this_)->result = std::forward<Result>(result);
-				}, reinterpret_cast<coroutine_context **>(this_));
+#				ifndef CORO_NO_EXCEPTIONS
+					run_and_store_exception([this_]
+					{
+#				endif
+						R result = Func(**this_);
+						// store in a separate line in case the coroutine has been moved
+						(*this_)->result = std::forward<R>(result);
+#				ifndef CORO_NO_EXCEPTIONS
+					},
+					[this_]() -> std::exception_ptr &
+					{
+						// don't dereference before this in case the coroutine
+						// has been moved
+						return (*this_)->exception;
+					});
+#				endif
 				(*this_)->returned = true;
 			}
 		};
 		/**
 		 * specialization for void return
 		 */
-		template<typename Self, void (*Func)(Self &)>
-		struct returner<Self, void, Func>
+		template<typename S, void (*Func)(S &)>
+		struct returner<S, void, Func>
 		{
 			static void return_result(coroutine_preparer &)
 			{
 			}
 
 			// this is the function that the coroutine will start off in
-			static void coroutine_start(Self ** this_)
+			static void coroutine_start(S ** this_)
 			{
-				run_and_store_exception([this_]{ Func(**this_); }, reinterpret_cast<coroutine_context **>(this_));
+#				ifndef CORO_NO_EXCEPTIONS
+					run_and_store_exception([this_]
+					{
+#				endif
+						Func(**this_);
+#				ifndef CORO_NO_EXCEPTIONS
+					},
+					[this_]() -> std::exception_ptr &
+					{
+						// don't dereference before this in case the coroutine
+						// has been moved
+						return (*this_)->exception;
+					});
+#				endif
 				(*this_)->returned = true;
 			}
 		};
