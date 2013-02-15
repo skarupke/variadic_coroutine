@@ -382,7 +382,7 @@ namespace detail
 			{
 				static Result call(S & this_, std::tuple<any_storage<A>...> &, any_storage<A> &... arguments)
 				{
-					return this_.func(this_, std::forward<A>(arguments)...);
+					return this_.func(this_, static_cast<A>(arguments)...);
 				}
 			};
 		};
@@ -397,7 +397,7 @@ namespace detail
 		{
 			static R return_result(coroutine_preparer & this_)
 			{
-				return std::forward<R>(this_.result);
+				return static_cast<R>(this_.result);
 			}
 
 			// this is the function that the coroutine will start off in
