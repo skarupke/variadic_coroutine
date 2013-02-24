@@ -26,7 +26,6 @@ switch_to_context proc
 	movaps [rsp - 152], xmm14
 	movaps [rsp - 168], xmm15
 	mov qword ptr [rcx], rsp ; store stack pointer
-	jmp stack_switch_finish
 switch_to_context endp
 
 stack_switch_finish proc
@@ -62,9 +61,9 @@ stack_switch_finish proc
 stack_switch_finish endp
 
 callable_context_start proc
-	mov rcx, qword ptr [rbx + 40] ; function_argument
-	call qword ptr [rbx + 32] ; function
-	mov rdx, [rbx] ; this->caller_stack_top
+	mov rcx, rdi ; function_argument
+	call rbp ; function
+	mov rdx, [rbx] ; caller_stack_top
 	jmp stack_switch_finish
 callable_context_start endp 
 

@@ -14,13 +14,9 @@ struct stack_context
 private:
 	void * caller_stack_top;
 	void * my_stack_top;
-
-	void * stack;
-	size_t stack_size;
-	void (* function)(void *);
-	void * function_argument;
-
-	void ensure_alignment();
+#ifndef _WIN64
+	void * rbp_on_stack;
+#endif
 
 	// intentionally left unimplemented. there is a this pointer stored on the
 	// stack and as such not even moving makes sense, because then that this
